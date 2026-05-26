@@ -99,7 +99,7 @@ DB_COL_MAP = {
 def fetch_patents():
     try:
         query = supabase.table(get_db_table()).select("*").order('created_at', desc=True)
-        df = pd.DataFrame(query.execute這是一個為研發人員量身打造的「被動元件專利 AI().data)
+       df = pd.DataFrame(query.execute().data)
         if df.empty: return pd.DataFrame()
         return df.rename(columns=DB_COL_MAP)
     except: return pd 戰略分析系統」改寫版本。
