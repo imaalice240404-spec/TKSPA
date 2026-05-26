@@ -1,3 +1,36 @@
+# ==========================================
+# ⚙️ 1. 系統初始化與環境設定
+# ==========================================
+st.set_page_config(page_title="研發部專屬 - 專利戰略分析系統", page_icon="⚡", layout="wide")
+
+def get_config(keys):
+    for k in keys:
+        try: return st.secrets[k]
+        except: continue
+    return None
+
+S_URL = get_config(["SUPABASE_URL"])
+S_KEY = get_config(["SUPABASE_KEY"])
+ADMIN_ID = "3676" 
+
+# 🛠️ Debug 檢查區塊：測試 Secrets 是否有成功讀取
+if not S_URL or not S_KEY:
+    st.error("🚨 嚴重錯誤：無法從 Secrets 讀取到 Supabase 網址或金鑰！")
+    st.info("請檢查 Streamlit Cloud 後台的 Settings -> Secrets 設定。")
+    st.stop()
+
+# 測試：故意只顯示金鑰前 5 個字元來確認有讀到東西 (確認後可刪除此行)
+# st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
+
+key_pool = []
+if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
+if get_config(["GOOGLE_API_KEY_2"]): key_pool.append(st.secrets["GOOGLE_API_KEY_2"])
+if not key_pool and get_config(["GOOGLE_API_KEY"]): key_pool.append(st.secrets["GOOGLE_API_KEY"])
+
+if not key_pool:
+    st.error("❌ 系統偵測到 Google API Key 缺失！")
+    st.stop()
+    
 # -*- coding: utf-8 -*-
 import os, json, random, time, io, base64, re
 import streamlit as st
