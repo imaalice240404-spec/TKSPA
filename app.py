@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-import os, json, random, time, io, base64, re
+import os, json, random, time, io, base64, re, tempfile
 import streamlit as st
 import pandas as pd
 import google.generativeai as genai
@@ -28,7 +28,7 @@ if not S_URL or not S_KEY:
     st.stop()
 
 # 測試：顯示金鑰前 5 個字元來確認有讀到東西 (確認沒問題後，可以在這行最前面加 # 註解掉)
-st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
+# st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
 
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
@@ -46,7 +46,6 @@ model = genai.GenerativeModel('gemini-2.5-flash', generation_config=genai.types.
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(S_URL, S_KEY)
-
 supabase = init_supabase()
 
 # ==========================================
@@ -114,7 +113,6 @@ DETAILED_11_RULES = """
 (列出本案的 IPC 分類號，並簡述其代表的技術領域與分類意義)
 """
 
-# 🌟 新增翻譯指令的批次萃取 Prompt
 PROMPT_M1_BATCH = """
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務研發經驗的資深研發主管兼專利工程師。
 【⚠️ 跨國語言處理指示】：若輸入的專利標題、摘要或請求項為英文、日文或其他外語，請直接在腦中進行精準的專業翻譯，並【一律使用台灣繁體中文】輸出最終結果！
@@ -129,7 +127,6 @@ PROMPT_M1_BATCH = """
 }
 """
 
-# 🌟 新增翻譯指令的單篇深度拆解 Prompt
 PROMPT_M3_SINGLE = f"""
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務經驗的資深研發主管兼專利代理人。
 【⚠️ 跨國語言處理指示】：若閱讀的 PDF 說明書為外文（如英文、日文等），請直接將其視為繁體中文進行理解，並【一律使用台灣繁體中文】撰寫下方所有 JSON 內容與報告！
@@ -173,7 +170,6 @@ def clean_assignee(name):
     if not name: return "未知"
     return re.split(r'股份有限公司|有限公司|公司|Inc|Ltd|LLC|Corporation', name)[0].split(' ')[0].strip() if name else "未知"
 
-# 🌟 核心切換：一律導向單一資料庫 patents
 def get_db_table(): 
     return 'patents' 
 
@@ -213,14 +209,27 @@ def get_ipc4(ipc_str):
         if match: res.add(match.group(1))
     return list(res)
 
+# 🌟 自動抓取國家代碼與專利類型
 def get_patent_type(row):
     cert = str(row.get('證書號', '')).strip().upper()
     app = str(row.get('申請號', '')).strip().upper()
-    status = str(row.get('案件狀態', ''))
-    if cert.startswith('I') or app.startswith('I') or '公開' in status or '審查' in status: return '發明專利 (I)'
-    if cert.startswith('M') or app.startswith('M'): return '新型專利 (M)'
-    if cert.startswith('D') or app.startswith('D'): return '設計專利 (D)'
-    return '海外/其他專利'
+    status = str(row.get('案件狀態', '')).strip()
+    
+    # 取主要號碼判斷
+    ref_num = cert if cert else app
+    
+    # 抓取前兩個英文字母作國碼
+    match = re.match(r'^([A-Z]{2})', ref_num)
+    country = match.group(1) if match else "TW" 
+    
+    # 判斷專利類型
+    ptype = "發明" 
+    if "新型" in status or "M" in ref_num or ref_num.endswith("U") or ref_num.endswith("Y"):
+        ptype = "新型"
+    elif "設計" in status or "外觀" in status or "D" in ref_num or ref_num.endswith("S"):
+        ptype = "設計"
+        
+    return f"[{country}] {ptype}"
 
 # ==========================================
 # 📊 5. 導覽列與戰略引擎
@@ -410,6 +419,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
     if df.empty: 
         st.warning("⚠️ 目前資料庫無分析資料，請先至模組一匯入 (或等候 AI 解析)。")
     else:
+        # 套用新的國碼與專利類型邏輯
         df['專利類型'] = df.apply(get_patent_type, axis=1)
         df['IPC4'] = df['IPC'].apply(get_ipc4)
         df['用戶標籤'] = df['用戶標籤'].fillna('{}')
@@ -419,7 +429,6 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
         df['我的標籤'] = df['用戶標籤'].apply(lambda x: json.loads(x or '{}').get(cu, ""))
         df['我已收藏'] = df['收藏名單'].apply(lambda x: cu in str(x).split(','))
 
-        # 基礎過濾器保留
         with st.expander("🔍 顯示進階篩選條件"):
             col_t1, col_t2 = st.columns([1, 2])
             with col_t1: filter_star = st.checkbox(f"🌟 只顯示我的最愛")
@@ -458,7 +467,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                             
                             with col_mid:
                                 st.markdown(f"#### [{did}] {p.get('專利名稱', '未知名稱')}")
-                                st.caption(f"🏢 {p.get('專利權人', '未知')} ｜ 📅 日期: {p.get('公開公告日', '未知')} ｜ 🏷️ {p.get('專利類型', '未知')}")
+                                st.caption(f"🏢 {p.get('專利權人', '未知')} ｜ 📅 日期: {p.get('公開公告日', '未知')} ｜ 🏷️ **{p.get('專利類型', '未知')}**")
                                 
                                 tags_html = f"""
                                 <div style="display:flex; flex-wrap:wrap; gap:10px; margin: 12px 0;">
@@ -510,7 +519,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     else:
         db_id, did = t.get('ID'), (t.get('證書號') or t.get('申請號'))
         st.header(f"🕵️ 深度拆解：[{did}] {t.get('專利名稱')}")
-        st.markdown(f"**🏢 權利人：** {t.get('專利權人')} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：{t.get('專利類型')}")
+        st.markdown(f"**🏢 權利人：** {t.get('專利權人')} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：**{t.get('專利類型')}**")
         st.markdown("---")
 
         if not st.session_state.rd_card_data:
