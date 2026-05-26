@@ -1,7 +1,10 @@
 streamlit
+pandas
+numpy
 google-generativeai
+supabase
 pypdfium2
 python-docx
-pandas
 plotly
 Pillow
+openpyxl
