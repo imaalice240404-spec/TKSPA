@@ -11,6 +11,17 @@ from docx import Document
 # ==========================================
 st.set_page_config(page_title="研發部專屬 - 專利戰略分析系統", page_icon="⚡", layout="wide")
 
+# 加入 CSS 讓 Streamlit 的按鈕可以支援換行 (變成直的)
+st.markdown("""
+    <style>
+    div[data-testid="stButton"] button {
+        white-space: pre-line !important;
+        height: 100%;
+        min-height: 120px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 def get_config(keys):
     for k in keys:
         try: return st.secrets[k]
@@ -21,14 +32,9 @@ S_URL = get_config(["SUPABASE_URL"])
 S_KEY = get_config(["SUPABASE_KEY"])
 ADMIN_ID = "3676" 
 
-# 🛠️ Debug 檢查區塊：測試 Secrets 是否有成功讀取
 if not S_URL or not S_KEY:
     st.error("🚨 嚴重錯誤：無法從 Secrets 讀取到 Supabase 網址或金鑰！")
-    st.info("請檢查 Streamlit Cloud 後台的 Settings -> Secrets 設定。")
     st.stop()
-
-# 測試：顯示金鑰前 5 個字元來確認有讀到東西 (確認沒問題後，可以在這行最前面加 # 註解掉)
-# st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
 
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
@@ -72,7 +78,7 @@ if not st.session_state.current_user:
 IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
 
 # ==========================================
-# 🧠 3. 高階專利 Prompt 庫 (加入自動翻譯機制)
+# 🧠 3. 高階專利 Prompt 庫 
 # ==========================================
 DETAILED_11_RULES = """
 【一、 🚦 FTO 風險判定】
@@ -123,7 +129,7 @@ PROMPT_M1_BATCH = """
   "次系統": "自訂 5-8 字的具體系統名",
   "特殊機構": "15字內精準描述其物理、化學改變或關鍵製程",
   "達成功效": "20字內描述解決的痛點 (例如高頻、高溫或微型化)",
-  "核心解法": "用 RD 聽得懂的白話文，精確描述材料配方、結構堆疊或製程步驟。"
+  "核心解法": "用 RD 聽得懂的白話文，詳細且精確地描述材料配方、結構堆疊或製程步驟（請給出具體數值或特徵條件，約 50 到 80 字，提供更詳細的說明）。"
 }
 """
 
@@ -163,6 +169,14 @@ def parse_ai_json(text):
         return json.loads(cln[s:e+1]) if s != -1 else {}
     except: return {}
 
+# 🌟 安全解析 JSON 字典 (修復已分析專利打不開的 Bug)
+def safe_dict(val):
+    if isinstance(val, dict): return val
+    if isinstance(val, str):
+        try: return json.loads(val)
+        except: return {}
+    return {}
+
 def safe_str(val): return str(val).strip() if pd.notna(val) else ""
 
 def clean_assignee(name):
@@ -170,23 +184,20 @@ def clean_assignee(name):
     if not name: return "未知"
     return re.split(r'股份有限公司|有限公司|公司|Inc|Ltd|LLC|Corporation', name)[0].split(' ')[0].strip() if name else "未知"
 
-def get_db_table(): 
-    return 'patents' 
+def get_db_table(): return 'patents' 
 
 DB_COL_MAP = {
     'id': 'ID', 'app_num': '申請號', 'cert_num': '證書號', 'pub_date': '公開公告日', 'app_date': '申請日',
     'assignee': '專利權人', 'title': '專利名稱', 'abstract': '摘要', 'claims': '請求項',
     'legal_status': '案件狀態', 'status': '狀態', 'sys_main': '五大類', 'sys_sub': '次系統',
     'mechanism': '特殊機構', 'effect': '達成功效', 'solution': '核心解法',
-    'thumbnail_base64': '代表圖', 'ipc': 'IPC', 'starred_users': '收藏名單', 'user_tags': '用戶標籤',
-    'rd_card_json': 'RDJSON', 'vis_data_json': 'VISJSON', 'ip_report_text': 'REPORT'
+    'thumbnail_base64': '代表圖', 'ipc': 'IPC', 'rd_card_json': 'RDJSON', 'vis_data_json': 'VISJSON', 'ip_report_text': 'REPORT'
 }
 
 def fetch_patents(status_filter=None):
     try:
         query = supabase.table(get_db_table()).select("*").order('created_at', desc=True)
-        if status_filter: 
-            query = query.eq('status', status_filter)
+        if status_filter: query = query.eq('status', status_filter)
         df = pd.DataFrame(query.execute().data)
         if df.empty: return pd.DataFrame()
         return df.rename(columns=DB_COL_MAP)
@@ -201,28 +212,16 @@ def create_word_doc(text):
     doc.save(bio)
     return bio.getvalue()
 
-def get_ipc4(ipc_str):
-    if pd.isna(ipc_str) or not ipc_str or ipc_str == "未知": return []
-    res = set()
-    for part in re.split(r'[;\|,]', str(ipc_str)):
-        match = re.search(r'([A-Z]\d{2}[A-Z])', part.strip().upper())
-        if match: res.add(match.group(1))
-    return list(res)
-
 # 🌟 自動抓取國家代碼與專利類型
 def get_patent_type(row):
     cert = str(row.get('證書號', '')).strip().upper()
     app = str(row.get('申請號', '')).strip().upper()
     status = str(row.get('案件狀態', '')).strip()
     
-    # 取主要號碼判斷
     ref_num = cert if cert else app
-    
-    # 抓取前兩個英文字母作國碼
     match = re.match(r'^([A-Z]{2})', ref_num)
     country = match.group(1) if match else "TW" 
     
-    # 判斷專利類型
     ptype = "發明" 
     if "新型" in status or "M" in ref_num or ref_num.endswith("U") or ref_num.endswith("Y"):
         ptype = "新型"
@@ -243,11 +242,9 @@ if 'thumbnail_base64' not in st.session_state: st.session_state.thumbnail_base64
 
 PAGES = ["📥 模組一：探勘匯入", "📊 模組二：研發知識庫", "🕵️ 模組三：單篇深度拆解"]
 
-# 🚨 即時工單通知計數
 open_count = 0
 if IS_ADMIN:
-    try: 
-        open_count = supabase.table('support_tickets').select('id', count='exact').eq('status', 'OPEN').execute().count or 0
+    try: open_count = supabase.table('support_tickets').select('id', count='exact').eq('status', 'OPEN').execute().count or 0
     except: pass
     admin_page_name = f"👑 專家工單中心 (🔴 {open_count} 待處理)" if open_count > 0 else "👑 專家工單中心"
     PAGES.append(admin_page_name)
@@ -300,12 +297,9 @@ if st.session_state.radio_nav.startswith("👑 專家"):
                         st.markdown(f"### 🎫 工單號: {t['id']} | 專利號: **{t['patent_id']}**")
                         st.caption(f"👤 申請人: {t['job_id']} | 📅 時間: {t['created_at'][:16]}")
                         st.error(f"**🚨 員工疑慮描述：**\n{t['issue_desc']}")
-                        
                         ans = st.text_area("✍️ 專業回覆與指導：", key=f"ans_{t['id']}")
                         if st.button("💾 送出回覆並結案", key=f"cls_{t['id']}", type="primary"):
                             supabase.table('support_tickets').update({'admin_reply': ans, 'status': 'CLOSED'}).eq('id', t['id']).execute()
-                            st.toast("✅ 工單已結案！")
-                            time.sleep(0.5)
                             st.rerun()
             with t2:
                 for _, t in closed_t.iterrows():
@@ -316,7 +310,7 @@ if st.session_state.radio_nav.startswith("👑 專家"):
         st.error(f"讀取工單失敗: {e}")
 
 # ==========================================
-# 📥 模組一：探勘匯入 (僅限 3676 管理員可見)
+# 📥 模組一：探勘匯入
 # ==========================================
 elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
     if not IS_ADMIN:
@@ -353,7 +347,6 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                     cert_val = safe_str(row[col_map['cert_num']]) if col_map['cert_num'] else ""
                     new_status = safe_str(row[col_map['status']]) if col_map['status'] else "未知"
                     if not app_val and not cert_val: continue 
-                    
                     check_val = app_val if app_val else cert_val
 
                     if check_val in existing_dict:
@@ -375,8 +368,7 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                             'abstract': safe_str(row[col_map['abs']]).replace('\n', '')[:500] if col_map['abs'] else "無摘要",
                             'claims': safe_str(row[col_map['claim']]).replace('\n', '')[:500] if col_map['claim'] else "無請求項",
                             'legal_status': new_status, 'status': 'PENDING',
-                            'ipc': safe_str(row[col_map['ipc']]) if col_map['ipc'] else "未知",
-                            'starred_users': '', 'user_tags': '{}'
+                            'ipc': safe_str(row[col_map['ipc']]) if col_map['ipc'] else "未知"
                         })
                     if i % 10 == 0: pb.progress(min(1.0, (i + 1) / len(df)))
                 
@@ -412,32 +404,19 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                 st.rerun()
 
 # ==========================================
-# 📊 模組二：研發知識庫 (卡片化與分類 Tabs)
+# 📊 模組二：研發知識庫 (排版大翻新)
 # ==========================================
 elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
     df = fetch_patents('COMPLETED')
     if df.empty: 
         st.warning("⚠️ 目前資料庫無分析資料，請先至模組一匯入 (或等候 AI 解析)。")
     else:
-        # 套用新的國碼與專利類型邏輯
         df['專利類型'] = df.apply(get_patent_type, axis=1)
-        df['IPC4'] = df['IPC'].apply(get_ipc4)
-        df['用戶標籤'] = df['用戶標籤'].fillna('{}')
-        df['收藏名單'] = df['收藏名單'].fillna('')
-        
-        cu = st.session_state.current_user
-        df['我的標籤'] = df['用戶標籤'].apply(lambda x: json.loads(x or '{}').get(cu, ""))
-        df['我已收藏'] = df['收藏名單'].apply(lambda x: cu in str(x).split(','))
 
         with st.expander("🔍 顯示進階篩選條件"):
-            col_t1, col_t2 = st.columns([1, 2])
-            with col_t1: filter_star = st.checkbox(f"🌟 只顯示我的最愛")
-            with col_t2: filter_tags = st.multiselect("🏷️ 依專屬標籤篩選", sorted(list(set([t.strip() for r in df['我的標籤'] for t in str(r).split(',') if t.strip()]))))
             search_q = st.text_input("🔑 關鍵字或號碼搜尋")
             
         fdf = df.copy()
-        if filter_star: fdf = fdf[fdf['我已收藏'] == True]
-        if filter_tags: fdf = fdf[fdf['我的標籤'].apply(lambda x: any(t in str(x) for t in filter_tags))]
         if search_q:
             qc = re.sub(r'[^a-zA-Z0-9]', '', search_q).upper()
             fdf = fdf[fdf.astype(str).apply(lambda x: x.str.contains(search_q, case=False)).any(axis=1) | 
@@ -457,13 +436,14 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                         did = p['證書號'] if p['證書號'] else p['申請號']
                         
                         with st.container(border=True):
-                            col_img, col_mid, col_btn = st.columns([1.5, 6, 2])
+                            # 🌟 [排版翻新] 放大圖示比例，按鈕縮小
+                            col_img, col_mid, col_btn = st.columns([3, 7.5, 1])
                             
                             with col_img:
                                 if p.get('代表圖') and len(str(p.get('代表圖'))) > 100: 
                                     st.image(f"data:image/jpeg;base64,{p['代表圖']}", use_container_width=True)
                                 else: 
-                                    st.markdown("<div style='border:1px dashed #ccc; height:180px; display:flex; align-items:center; justify-content:center; color:#999; background:#fafafa; border-radius:8px;'>🖼️ 無代表圖</div>", unsafe_allow_html=True)
+                                    st.markdown("<div style='border:1px dashed #ccc; height:200px; display:flex; align-items:center; justify-content:center; color:#999; background:#fafafa; border-radius:8px;'>🖼️ 無代表圖</div>", unsafe_allow_html=True)
                             
                             with col_mid:
                                 st.markdown(f"#### [{did}] {p.get('專利名稱', '未知名稱')}")
@@ -479,29 +459,11 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                 st.markdown(tags_html, unsafe_allow_html=True)
                                 
                                 if p.get('核心解法'): 
-                                    st.markdown(f"<span style='color:#555; font-size:15px;'>💡 **解法：** {p['核心解法']}</span>", unsafe_allow_html=True)
+                                    st.markdown(f"<div style='color:#444; font-size:15px; line-height:1.6; margin-top:8px;'>💡 **解法細節：** {p['核心解法']}</div>", unsafe_allow_html=True)
                             
                             with col_btn:
-                                st.write("")
-                                is_fav = p['我已收藏']
-                                btn_lbl = "取消收藏" if is_fav else "⭐ 加入我的最愛"
-                                if st.button(btn_lbl, key=f"star_{did}", use_container_width=True):
-                                    arr = [u for u in str(p['收藏名單']).split(',') if u]
-                                    if is_fav and cu in arr: arr.remove(cu)
-                                    elif not is_fav and cu not in arr: arr.append(cu)
-                                    supabase.table(get_db_table()).update({'starred_users': ",".join(arr)}).eq('id', p['ID']).execute()
-                                    st.rerun()
-                                
-                                nt = st.text_input("專屬標籤", value=p['我的標籤'], placeholder="#專案A", key=f"tags_{did}")
-                                if nt != p['我的標籤']:
-                                    if st.button("💾 儲存標籤", key=f"savetag_{did}", use_container_width=True):
-                                        td = json.loads(p['用戶標籤']) if p['用戶標籤'] else {}
-                                        td[cu] = nt
-                                        supabase.table(get_db_table()).update({'user_tags': json.dumps(td, ensure_ascii=False)}).eq('id', p['ID']).execute()
-                                        st.rerun()
-
-                                st.markdown("<br>", unsafe_allow_html=True)
-                                if st.button("📄 進入深度拆解", key=f"btn_s_{did}", use_container_width=True, type="primary"):
+                                # 🌟 [排版翻新] 直式按鈕設計
+                                if st.button("進\n入\n拆\n解", key=f"btn_s_{did}", use_container_width=True, type="primary"):
                                     st.session_state.target_single_patent = p.to_dict()
                                     st.session_state.pdf_bytes_main = None 
                                     for key in ['rd_card_data', 'claim_data_t2']: st.session_state[key] = {}
@@ -510,7 +472,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                     st.rerun()
 
 # ==========================================
-# 🕵️ 模組三：單篇深度拆解
+# 🕵️ 模組三：單篇深度拆解 (排版大翻新)
 # ==========================================
 elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     t = st.session_state.target_single_patent
@@ -525,8 +487,9 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         if not st.session_state.rd_card_data:
             res = supabase.table(get_db_table()).select("rd_card_json, vis_data_json, ip_report_text, thumbnail_base64").eq('id', db_id).execute().data
             if res and res[0].get('rd_card_json'):
-                st.session_state.rd_card_data = res[0].get('rd_card_json')
-                st.session_state.claim_data_t2 = res[0].get('vis_data_json')
+                # 🌟 [Bug Fix] 安全轉換 DB 回傳的 JSON 字串，解決點不開的問題
+                st.session_state.rd_card_data = safe_dict(res[0].get('rd_card_json'))
+                st.session_state.claim_data_t2 = safe_dict(res[0].get('vis_data_json'))
                 st.session_state.ip_report_content = res[0].get('ip_report_text')
                 st.session_state.thumbnail_base64 = res[0].get('thumbnail_base64')
 
@@ -584,47 +547,51 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
             
             with t_rd:
                 rd = st.session_state.rd_card_data
-                main_c_img, main_c_data = st.columns([1, 2.5])
                 
-                with main_c_img:
-                    st.markdown("### 🖼️ 專利核心圖示")
+                # 🌟 [排版翻新] 上半部：三大看板並列
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    with st.container(border=True, height=550):
+                        st.markdown(f"#### 🎯 研發戰略看板\n**{rd.get('title', '')}**")
+                        st.markdown(f"**🔥 解決痛點：**\n\n{rd.get('problem', '')}\n\n**💡 核心解法：**\n\n{rd.get('solution', '')}")
+                with c2:
+                    with st.container(border=True, height=550):
+                        st.markdown("#### 🛡️ 獨立項全要件檢核")
+                        st.caption("全要件原則：符合下方所有特徵，則侵權風險極高。")
+                        ck_cnt = 0
+                        r_list = rd.get('risk_check', [])
+                        for i, r in enumerate(r_list):
+                            if st.checkbox(str(r), key=f"rc_{i}"): ck_cnt += 1
+                        st.markdown("<br>", unsafe_allow_html=True)
+                        if r_list:
+                            if ck_cnt == len(r_list): 
+                                st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 高度侵權風險！</b></div>", unsafe_allow_html=True)
+                            else: 
+                                st.markdown("<div style='padding:10px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px;'><b>🎉 文義迴避成功。</b></div>", unsafe_allow_html=True)
+                with c3:
+                    with st.container(border=True, height=550):
+                        st.markdown("#### 🛡️ 高階迴避建議")
+                        for a in rd.get('design_avoid_rd', []): 
+                            st.markdown(f"✅ {a}")
+
+                st.markdown("---")
+                
+                # 🌟 [排版翻新] 下半部：圖示與請求項 (不再擁擠)
+                st.markdown("### 🖼️ 專利核心圖示與獨立項結構")
+                img_col, claim_col = st.columns([1, 1.5])
+                
+                with img_col:
                     with st.container(border=True):
                         if st.session_state.thumbnail_base64:
                             st.image(f"data:image/jpeg;base64,{st.session_state.thumbnail_base64}", use_container_width=True)
                         else:
                             st.info("尚無圖示，請聯繫管理員上傳。")
-                            
-                        st.markdown("---")
-                        st.markdown("##### 🧩 獨立項結構")
+                
+                with claim_col:
+                    with st.container(border=True):
                         claims_list = st.session_state.claim_data_t2.get('claims', [])
                         for c in claims_list:
-                            st.markdown(f"<div style='font-size:14px; color:#555;'>{c}</div>", unsafe_allow_html=True)
-                            
-                with main_c_data:
-                    c1, c2, c3 = st.columns([1.5, 2, 1.5])
-                    with c1:
-                        with st.container(border=True, height=550):
-                            st.markdown(f"#### 🎯 研發戰略看板\n**{rd.get('title', '')}**")
-                            st.markdown(f"**🔥 解決痛點：**\n\n{rd.get('problem', '')}\n\n**💡 核心解法：**\n\n{rd.get('solution', '')}")
-                    with c2:
-                        with st.container(border=True, height=550):
-                            st.markdown("#### 🛡️ 獨立項全要件檢核")
-                            st.caption("全要件原則：符合下方所有特徵，則侵權風險極高。")
-                            ck_cnt = 0
-                            r_list = rd.get('risk_check', [])
-                            for i, r in enumerate(r_list):
-                                if st.checkbox(str(r), key=f"rc_{i}"): ck_cnt += 1
-                            st.markdown("<br>", unsafe_allow_html=True)
-                            if r_list:
-                                if ck_cnt == len(r_list): 
-                                    st.markdown("<div style='padding:10px; background-color:#ffebee; color:#c62828; border-radius:5px;'><b>⚠️ 高度侵權風險！</b></div>", unsafe_allow_html=True)
-                                else: 
-                                    st.markdown("<div style='padding:10px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px;'><b>🎉 文義迴避成功。</b></div>", unsafe_allow_html=True)
-                    with c3:
-                        with st.container(border=True, height=550):
-                            st.markdown("#### 🛡️ 高階迴避建議")
-                            for a in rd.get('design_avoid_rd', []): 
-                                st.markdown(f"✅ {a}")
+                            st.markdown(f"<div style='font-size:15px; color:#444; line-height:1.8; margin-bottom:10px;'>{c}</div>", unsafe_allow_html=True)
 
             with t_ip:
                 st.markdown("### ⚖️ 智權法務深度報告")
