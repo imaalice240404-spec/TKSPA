@@ -1,0 +1,7 @@
+streamlit
+google-generativeai
+pypdfium2
+python-docx
+pandas
+plotly
+Pillow
