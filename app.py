@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+import os, json, random, time, io, base64, re
+import streamlit as st
+import pandas as pd
+import google.generativeai as genai
+from supabase import create_client, Client
+from docx import Document
+
 # ==========================================
 # ⚙️ 1. 系統初始化與環境設定
 # ==========================================
@@ -19,8 +27,8 @@ if not S_URL or not S_KEY:
     st.info("請檢查 Streamlit Cloud 後台的 Settings -> Secrets 設定。")
     st.stop()
 
-# 測試：故意只顯示金鑰前 5 個字元來確認有讀到東西 (確認後可刪除此行)
-# st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
+# 測試：顯示金鑰前 5 個字元來確認有讀到東西 (確認沒問題後，可以在這行最前面加 # 註解掉)
+st.success(f"✅ Supabase 金鑰讀取成功 (前五碼): {S_KEY[:5]}...")
 
 key_pool = []
 if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
@@ -31,14 +39,6 @@ if not key_pool:
     st.error("❌ 系統偵測到 Google API Key 缺失！")
     st.stop()
     
-# -*- coding: utf-8 -*-
-import os, json, random, time, io, base64, re
-import streamlit as st
-import pandas as pd
-import google.generativeai as genai
-from supabase import create_client, Client
-from docx import Document
-
 SELECTED_G_KEY = random.choice(key_pool)
 genai.configure(api_key=SELECTED_G_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash', generation_config=genai.types.GenerationConfig(temperature=0.1, top_p=0.8))
@@ -46,6 +46,7 @@ model = genai.GenerativeModel('gemini-2.5-flash', generation_config=genai.types.
 @st.cache_resource
 def init_supabase() -> Client:
     return create_client(S_URL, S_KEY)
+
 supabase = init_supabase()
 
 # ==========================================
