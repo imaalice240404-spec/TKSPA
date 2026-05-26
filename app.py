@@ -39,30 +39,6 @@ import google.generativeai as genai
 from supabase import create_client, Client
 from docx import Document
 
-# ==========================================
-# ⚙️ 1. 系統初始化與環境設定
-# ==========================================
-st.set_page_config(page_title="研發部專屬 - 專利戰略分析系統", page_icon="⚡", layout="wide")
-
-def get_config(keys):
-    for k in keys:
-        try: return st.secrets[k]
-        except: continue
-    return None
-
-S_URL = get_config(["SUPABASE_URL"])
-S_KEY = get_config(["SUPABASE_KEY"])
-ADMIN_ID = "3676" 
-
-key_pool = []
-if get_config(["GOOGLE_API_KEY_1"]): key_pool.append(st.secrets["GOOGLE_API_KEY_1"])
-if get_config(["GOOGLE_API_KEY_2"]): key_pool.append(st.secrets["GOOGLE_API_KEY_2"])
-if not key_pool and get_config(["GOOGLE_API_KEY"]): key_pool.append(st.secrets["GOOGLE_API_KEY"])
-
-if not all([S_URL, S_KEY, key_pool]):
-    st.error("❌ 系統偵測到雲端 Secrets 設定缺失！請檢查 Streamlit 後台設定。")
-    st.stop()
-
 SELECTED_G_KEY = random.choice(key_pool)
 genai.configure(api_key=SELECTED_G_KEY)
 model = genai.GenerativeModel('gemini-2.5-flash', generation_config=genai.types.GenerationConfig(temperature=0.1, top_p=0.8))
