@@ -129,13 +129,14 @@ PROMPT_M1_BATCH = """
   "次系統": "自訂 5-8 字的具體系統名",
   "特殊機構": "15字內精準描述其物理、化學改變或關鍵製程",
   "達成功效": "20字內描述解決的痛點 (例如高頻、高溫或微型化)",
-  "核心解法": "用 RD 聽得懂的白話文，詳細且精確地描述材料配方、結構堆疊或製程步驟（請給出具體數值或特徵條件，約 50 到 80 字，提供更詳細的說明）。"
+  "核心解法": "用 RD 聽得懂的白話文，極度詳細且精確地描述材料配方、結構疊層、比例參數或製程步驟細節（請務必保留所有具體的數值、材料名稱與特徵條件，字數約 100 到 150 字，提供最詳盡的說明）。"
 }
 """
 
 PROMPT_M3_SINGLE = f"""
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務經驗的資深研發主管兼專利代理人。
 【⚠️ 跨國語言處理指示】：若閱讀的 PDF 說明書為外文（如英文、日文等），請直接將其視為繁體中文進行理解，並【一律使用台灣繁體中文】撰寫下方所有 JSON 內容與報告！
+【⚠️ 排版警告】：請絕對不要使用半形波浪號「~」來表示數值範圍（以免導致網頁產生刪除線），請改用「至」或全形「-」。
 
 【🔴 輸出格式要求：純 JSON 格式】
 {{
@@ -169,7 +170,6 @@ def parse_ai_json(text):
         return json.loads(cln[s:e+1]) if s != -1 else {}
     except: return {}
 
-# 🌟 安全解析 JSON 字典 (修復已分析專利打不開的 Bug)
 def safe_dict(val):
     if isinstance(val, dict): return val
     if isinstance(val, str):
@@ -178,6 +178,10 @@ def safe_dict(val):
     return {}
 
 def safe_str(val): return str(val).strip() if pd.notna(val) else ""
+
+# 🌟 解決 Markdown 刪除線的輔助函數
+def escape_md(text):
+    return str(text).replace("~", "～")
 
 def clean_assignee(name):
     name = safe_str(name)
@@ -212,7 +216,6 @@ def create_word_doc(text):
     doc.save(bio)
     return bio.getvalue()
 
-# 🌟 自動抓取國家代碼與專利類型
 def get_patent_type(row):
     cert = str(row.get('證書號', '')).strip().upper()
     app = str(row.get('申請號', '')).strip().upper()
@@ -404,7 +407,7 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                 st.rerun()
 
 # ==========================================
-# 📊 模組二：研發知識庫 (排版大翻新)
+# 📊 模組二：研發知識庫
 # ==========================================
 elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
     df = fetch_patents('COMPLETED')
@@ -434,36 +437,50 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                 else:
                     for _, p in cat_df.iterrows():
                         did = p['證書號'] if p['證書號'] else p['申請號']
+                        # 🌟 防呆：為同一個專利在不同 Tab 中建立唯一 Key，解決 Duplicate Key 錯誤
+                        u_key = f"{did}_{idx}"
                         
                         with st.container(border=True):
-                            # 🌟 [排版翻新] 放大圖示比例，按鈕縮小
-                            col_img, col_mid, col_btn = st.columns([3, 7.5, 1])
+                            # 🌟 [UI 翻新] 放大圖示比例，按鈕縮小
+                            col_img, col_mid, col_btn = st.columns([4, 6.5, 1.5])
                             
                             with col_img:
                                 if p.get('代表圖') and len(str(p.get('代表圖'))) > 100: 
                                     st.image(f"data:image/jpeg;base64,{p['代表圖']}", use_container_width=True)
                                 else: 
-                                    st.markdown("<div style='border:1px dashed #ccc; height:200px; display:flex; align-items:center; justify-content:center; color:#999; background:#fafafa; border-radius:8px;'>🖼️ 無代表圖</div>", unsafe_allow_html=True)
+                                    st.markdown("<div style='border:1px dashed #ccc; height:250px; display:flex; align-items:center; justify-content:center; color:#999; background:#fafafa; border-radius:8px;'>🖼️ 無代表圖</div>", unsafe_allow_html=True)
                             
                             with col_mid:
-                                st.markdown(f"#### [{did}] {p.get('專利名稱', '未知名稱')}")
-                                st.caption(f"🏢 {p.get('專利權人', '未知')} ｜ 📅 日期: {p.get('公開公告日', '未知')} ｜ 🏷️ **{p.get('專利類型', '未知')}**")
+                                st.markdown(f"#### [{did}] {escape_md(p.get('專利名稱', '未知名稱'))}")
+                                st.caption(f"🏢 {escape_md(p.get('專利權人', '未知'))} ｜ 📅 日期: {p.get('公開公告日', '未知')} ｜ 🏷️ **{p.get('專利類型', '未知')}**")
                                 
                                 tags_html = f"""
                                 <div style="display:flex; flex-wrap:wrap; gap:10px; margin: 12px 0;">
-                                    <div style="background:#e3f2fd; color:#0d47a1; padding:6px 12px; border-radius:6px; font-size:14px;">📁 <b>分類：</b>{p.get('五大類', '')} ➡️ {p.get('次系統', '')}</div>
-                                    <div style="background:#fff8e1; color:#f57f17; padding:6px 12px; border-radius:6px; font-size:14px;">⚙️ <b>機構/製程：</b>{p.get('特殊機構', '無資料')}</div>
-                                    <div style="background:#fce4ec; color:#c2185b; padding:6px 12px; border-radius:6px; font-size:14px;">🎯 <b>功效：</b>{p.get('達成功效', '無資料')}</div>
+                                    <div style="background:#e3f2fd; color:#0d47a1; padding:6px 12px; border-radius:6px; font-size:14px;">📁 <b>分類：</b>{escape_md(p.get('五大類', ''))} ➡️ {escape_md(p.get('次系統', ''))}</div>
+                                    <div style="background:#fff8e1; color:#f57f17; padding:6px 12px; border-radius:6px; font-size:14px;">⚙️ <b>機構/製程：</b>{escape_md(p.get('特殊機構', '無資料'))}</div>
+                                    <div style="background:#fce4ec; color:#c2185b; padding:6px 12px; border-radius:6px; font-size:14px;">🎯 <b>功效：</b>{escape_md(p.get('達成功效', '無資料'))}</div>
                                 </div>
                                 """
                                 st.markdown(tags_html, unsafe_allow_html=True)
                                 
                                 if p.get('核心解法'): 
-                                    st.markdown(f"<div style='color:#444; font-size:15px; line-height:1.6; margin-top:8px;'>💡 **解法細節：** {p['核心解法']}</div>", unsafe_allow_html=True)
-                            
+                                    st.markdown(f"<div style='color:#444; font-size:15px; line-height:1.6; margin-top:8px;'>💡 **解法細節：** {escape_md(p['核心解法'])}</div>", unsafe_allow_html=True)
+                                
+                                # 🌟 [新功能] 管理員限定的重新分類工具
+                                if IS_ADMIN:
+                                    with st.expander("⚙️ 管理員：校正專利分類"):
+                                        c_upd1, c_upd2, c_upd3 = st.columns([2, 2, 1])
+                                        new_main = c_upd1.multiselect("五大類", tech_categories, default=[c.strip() for c in str(p.get('五大類','')).split(',') if c.strip() in tech_categories], key=f"sel_m_{u_key}")
+                                        new_sub = c_upd2.text_input("次系統", value=str(p.get('次系統','')), key=f"sel_s_{u_key}")
+                                        if c_upd3.button("💾 儲存分類", key=f"upd_c_{u_key}", use_container_width=True):
+                                            supabase.table(get_db_table()).update({'sys_main': ', '.join(new_main) if new_main else '其他', 'sys_sub': new_sub}).eq('id', p['ID']).execute()
+                                            st.toast("✅ 分類已更新！")
+                                            time.sleep(0.5)
+                                            st.rerun()
+
                             with col_btn:
-                                # 🌟 [排版翻新] 直式按鈕設計
-                                if st.button("進\n入\n拆\n解", key=f"btn_s_{did}", use_container_width=True, type="primary"):
+                                # 🌟 [UI 翻新] 直式按鈕設計
+                                if st.button("進\n入\n拆\n解", key=f"btn_s_{u_key}", use_container_width=True, type="primary"):
                                     st.session_state.target_single_patent = p.to_dict()
                                     st.session_state.pdf_bytes_main = None 
                                     for key in ['rd_card_data', 'claim_data_t2']: st.session_state[key] = {}
@@ -472,7 +489,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                     st.rerun()
 
 # ==========================================
-# 🕵️ 模組三：單篇深度拆解 (排版大翻新)
+# 🕵️ 模組三：單篇深度拆解
 # ==========================================
 elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     t = st.session_state.target_single_patent
@@ -480,14 +497,13 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         st.warning("👈 請先從模組二選擇一篇專利進入。")
     else:
         db_id, did = t.get('ID'), (t.get('證書號') or t.get('申請號'))
-        st.header(f"🕵️ 深度拆解：[{did}] {t.get('專利名稱')}")
-        st.markdown(f"**🏢 權利人：** {t.get('專利權人')} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：**{t.get('專利類型')}**")
+        st.header(f"🕵️ 深度拆解：[{did}] {escape_md(t.get('專利名稱'))}")
+        st.markdown(f"**🏢 權利人：** {escape_md(t.get('專利權人'))} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：**{t.get('專利類型')}**")
         st.markdown("---")
 
         if not st.session_state.rd_card_data:
             res = supabase.table(get_db_table()).select("rd_card_json, vis_data_json, ip_report_text, thumbnail_base64").eq('id', db_id).execute().data
             if res and res[0].get('rd_card_json'):
-                # 🌟 [Bug Fix] 安全轉換 DB 回傳的 JSON 字串，解決點不開的問題
                 st.session_state.rd_card_data = safe_dict(res[0].get('rd_card_json'))
                 st.session_state.claim_data_t2 = safe_dict(res[0].get('vis_data_json'))
                 st.session_state.ip_report_content = res[0].get('ip_report_text')
@@ -548,12 +564,12 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
             with t_rd:
                 rd = st.session_state.rd_card_data
                 
-                # 🌟 [排版翻新] 上半部：三大看板並列
+                # 🌟 上半部：三大看板並列
                 c1, c2, c3 = st.columns(3)
                 with c1:
                     with st.container(border=True, height=550):
-                        st.markdown(f"#### 🎯 研發戰略看板\n**{rd.get('title', '')}**")
-                        st.markdown(f"**🔥 解決痛點：**\n\n{rd.get('problem', '')}\n\n**💡 核心解法：**\n\n{rd.get('solution', '')}")
+                        st.markdown(f"#### 🎯 研發戰略看板\n**{escape_md(rd.get('title', ''))}**")
+                        st.markdown(f"**🔥 解決痛點：**\n\n{escape_md(rd.get('problem', ''))}\n\n**💡 核心解法：**\n\n{escape_md(rd.get('solution', ''))}")
                 with c2:
                     with st.container(border=True, height=550):
                         st.markdown("#### 🛡️ 獨立項全要件檢核")
@@ -561,7 +577,8 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                         ck_cnt = 0
                         r_list = rd.get('risk_check', [])
                         for i, r in enumerate(r_list):
-                            if st.checkbox(str(r), key=f"rc_{i}"): ck_cnt += 1
+                            # 加上 escape_md 避免 Markdown 刪除線
+                            if st.checkbox(escape_md(str(r)), key=f"rc_{i}"): ck_cnt += 1
                         st.markdown("<br>", unsafe_allow_html=True)
                         if r_list:
                             if ck_cnt == len(r_list): 
@@ -572,11 +589,11 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                     with st.container(border=True, height=550):
                         st.markdown("#### 🛡️ 高階迴避建議")
                         for a in rd.get('design_avoid_rd', []): 
-                            st.markdown(f"✅ {a}")
+                            st.markdown(f"✅ {escape_md(a)}")
 
                 st.markdown("---")
                 
-                # 🌟 [排版翻新] 下半部：圖示與請求項 (不再擁擠)
+                # 🌟 下半部：圖示與請求項 (分離排版)
                 st.markdown("### 🖼️ 專利核心圖示與獨立項結構")
                 img_col, claim_col = st.columns([1, 1.5])
                 
@@ -591,7 +608,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                     with st.container(border=True):
                         claims_list = st.session_state.claim_data_t2.get('claims', [])
                         for c in claims_list:
-                            st.markdown(f"<div style='font-size:15px; color:#444; line-height:1.8; margin-bottom:10px;'>{c}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div style='font-size:15px; color:#444; line-height:1.8; margin-bottom:10px;'>{escape_md(c)}</div>", unsafe_allow_html=True)
 
             with t_ip:
                 st.markdown("### ⚖️ 智權法務深度報告")
@@ -599,7 +616,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                 c_dl.markdown("以下為嚴格遵守「智權審查 11 大天條」生成的實務報告：")
                 c_dr.download_button("📥 下載 Word 報告", data=create_word_doc(st.session_state.ip_report_content), file_name=f"IP_Report_{did}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
                 with st.container(height=650, border=True): 
-                    st.markdown(st.session_state.ip_report_content)
+                    st.markdown(escape_md(st.session_state.ip_report_content))
                 
             st.markdown("---")
             with st.expander("🚨 AI 解析結果不滿意或有侵權疑慮？呼叫管理者支援"):
