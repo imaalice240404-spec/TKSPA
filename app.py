@@ -61,12 +61,13 @@ if 'current_user' not in st.session_state:
     st.session_state.current_user = None
 
 if not st.session_state.current_user:
-    col1, col2, col3 = st.columns([1, 2, 1])
+    # 🌟 調整比例讓登入框變小且置中
+    col1, col2, col3 = st.columns([1.5, 2, 1.5])
     with col2:
-        st.markdown("<br><br><h1 style='text-align: center; color: #1e3a8a;'>⚡ 研發部專利分析系統</h1>", unsafe_allow_html=True)
+        st.markdown("<br><br><h1 style='text-align: center; color: #1e3a8a;'>⚡ 專利戰略分析系統</h1>", unsafe_allow_html=True)
         with st.container(border=True):
             st.markdown("### 🔐 內部人員登入")
-            job_id_input = st.text_input("請輸入您的員工編號：", placeholder="例如：3676")
+            job_id_input = st.text_input("請輸入您的員工職號：", placeholder="例如：3676")
             if st.button("登入系統", use_container_width=True, type="primary"):
                 if job_id_input.strip():
                     st.session_state.current_user = job_id_input.strip()
@@ -78,7 +79,7 @@ if not st.session_state.current_user:
 IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
 
 # ==========================================
-# 🧠 3. 高階專利 Prompt 庫 (加入特定欄位萃取)
+# 🧠 3. 高階專利 Prompt 庫 (精準升級版)
 # ==========================================
 DETAILED_11_RULES = """
 【一、 🚦 FTO 風險判定】
@@ -141,13 +142,17 @@ PROMPT_M3_SINGLE = f"""
 【🔴 輸出格式要求：純 JSON 格式】
 {{
   "rd_card": {{
-    "purpose": "發明目的 (詳細說明解決什麼傳統弊病)", 
-    "core_tech": "核心技術 (詳細說明具體零件結構設計、材料配方或製程步驟)", 
-    "effect": "宣稱功效 (詳細說明提升了什麼物理效果，如耐壓、高頻特性等)",
-    "risk_check": ["1-1. 獨立項全要件限制A", "1-2. 限制B"],
-    "design_avoid_rd": ["針對限制A的迴避方向(材料/製程)", "針對限制B的迴避方向"],
-    "hidden_landmines": "說明具備具體結構形狀、位置、材料成分比例或參數限制的附屬項地雷...",
-    "fake_radar": "說明是否有實體測試數據、可靠度驗證曲線，或僅為定性描述..."
+    "fto": "FTO 風險判定 (🔴 紅燈/🟡 黃燈/🟢 綠燈，請依據案件狀態嚴格判定。注意：若為公開案件必須打黃燈，說明原因)",
+    "snapshot": {{
+      "purpose": "1. 發明目的：(詳細說明解決什麼傳統弊病)", 
+      "tech": "2. 核心技術：(詳細說明具體零件結構設計、材料配方或製程步驟)", 
+      "effect": "3. 宣稱功效：(詳細說明提升了什麼物理效果，如耐壓、高頻特性等)"
+    }},
+    "avoid_design": ["針對限制A的具體迴避建議...", "針對限制B的迴避建議... (請盡量完整且詳細)"],
+    "claim_chart": ["1-1. 獨立項全要件限制A...", "1-2. 獨立項全要件限制B..."],
+    "loophole": "破口分析：(精準點出最容易被迴避的限制條件、製程參數或空間配置)",
+    "hidden_landmines": "說明具備具體結構形狀、位置、材料成分比例或參數限制的附屬項地雷。(特別注意新型專利常將重點放於附屬項，獨立項範圍過大反而沒寫出重點。請判斷哪些附屬項更重要並加以重點提示)",
+    "fake_radar": "檢視是否有實體測試數據、可靠度驗證曲線，或僅為定性描述"
   }},
   "vis_data": {{
     "claims": ["1. 獨立項全文...", "2. 依據請求項1..."],
@@ -181,6 +186,7 @@ def safe_dict(val):
 
 def safe_str(val): return str(val).strip() if pd.notna(val) else ""
 
+# 🌟 解決 Markdown 刪除線的輔助函數
 def escape_md(text):
     return str(text).replace("~", "～")
 
@@ -513,7 +519,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         if st.session_state.ip_report_content:
             with col_dl:
                 st.write("")
-                st.download_button("📥 下載完整智權分析 (Word)", data=create_word_doc(st.session_state.ip_report_content), file_name=f"IP_Report_{did}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
+                st.download_button("📥 下載完整法務分析 (Word)", data=create_word_doc(st.session_state.ip_report_content), file_name=f"IP_Report_{did}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True)
                 
         st.markdown("---")
 
@@ -532,7 +538,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                         st.rerun()
 
                 with col_up2:
-                    up_pdf = st.file_uploader("📂 2. 上傳 PDF 執行 11 大天條拆解", type=["pdf"])
+                    up_pdf = st.file_uploader("📂 2. 上傳 PDF 執行深層天條拆解", type=["pdf"])
                     if up_pdf and st.button("🚀 啟動 AI 深度解析", type="primary", use_container_width=True):
                         st.session_state.pdf_bytes_main = up_pdf.getvalue()
                         with st.spinner("🧠 正在搜索全文並套用 11 大天條..."):
@@ -569,26 +575,35 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         else:
             rd = st.session_state.rd_card_data
             
-            # 🌟 板塊一 & 板塊三 並列：技術快照與迴避建議
+            # 相容舊版資料的防呆處理
+            snap = rd.get('snapshot', {})
+            purp = snap.get('purpose', rd.get('problem', ''))
+            tech = snap.get('tech', rd.get('solution', ''))
+            effe = snap.get('effect', rd.get('effect', ''))
+            avoids = rd.get('avoid_design', rd.get('design_avoid_rd', []))
+            claims_chk = rd.get('claim_chart', rd.get('risk_check', []))
+            
+            # 🌟 板塊一 & 迴避建議並列：技術快照與防護策略
             col_snap, col_avoid = st.columns(2)
             
             with col_snap:
                 with st.container(border=True, height=450):
-                    st.markdown("#### 🎯 核心技術快照")
-                    # 相容舊資料與新資料 (因 prompt 換了 key)
-                    st.markdown(f"**發明目的：**\n{escape_md(rd.get('purpose', rd.get('title', '')))}")
-                    st.markdown(f"**核心技術：**\n{escape_md(rd.get('core_tech', rd.get('problem', '')))}")
-                    st.markdown(f"**宣稱功效：**\n{escape_md(rd.get('effect', rd.get('solution', '')))}")
+                    st.markdown("#### 📸 核心技術快照與 FTO")
+                    st.markdown(f"**{escape_md(rd.get('fto', ''))}**")
+                    st.markdown("---")
+                    st.markdown(f"**{escape_md(purp)}**")
+                    st.markdown(f"**{escape_md(tech)}**")
+                    st.markdown(f"**{escape_md(effe)}**")
                     
             with col_avoid:
                 with st.container(border=True, height=450):
                     st.markdown("#### 🛡️ 高階迴避設計建議")
-                    for a in rd.get('design_avoid_rd', []): 
+                    for a in avoids: 
                         st.markdown(f"✅ {escape_md(a)}")
             
             st.write("")
             
-            # 🌟 板塊二：左純圖示，右獨立項拆解
+            # 🌟 板塊二：純圖示 vs 獨立項拆解
             st.markdown("### 🖼️ 專利圖面與獨立項拆解")
             col_img, col_check = st.columns([4.5, 5.5])
             
@@ -606,31 +621,28 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                     st.write("")
                     
                     ck_cnt = 0
-                    r_list = rd.get('risk_check', [])
-                    for i, r in enumerate(r_list):
+                    for i, r in enumerate(claims_chk):
                         if st.checkbox(escape_md(str(r)), key=f"rc_{i}"): ck_cnt += 1
                     
                     st.markdown("<br>", unsafe_allow_html=True)
-                    if r_list:
-                        if ck_cnt == len(r_list): 
+                    if claims_chk:
+                        if ck_cnt == len(claims_chk): 
                             st.markdown("<div style='padding:12px; background-color:#ffebee; color:#c62828; border-radius:5px; border-left: 5px solid #c62828;'><b>🚨 警告：高度侵權風險！您的設計已落入所有限制條件。</b></div>", unsafe_allow_html=True)
                         else: 
                             st.markdown("<div style='padding:12px; background-color:#e8f5e9; color:#2e7d32; border-radius:5px; border-left: 5px solid #2e7d32;'><b>🎉 安全：文義迴避成功。您避開了至少一項核心限制。</b></div>", unsafe_allow_html=True)
 
                 with st.container(border=True):
-                    st.markdown("##### 🧩 獨立項原文參考")
-                    claims_list = st.session_state.claim_data_t2.get('claims', [])
-                    for c in claims_list:
-                        st.markdown(f"<div style='font-size:14px; color:#555; line-height:1.6; margin-bottom:8px;'>{escape_md(c)}</div>", unsafe_allow_html=True)
+                    st.markdown("#### 🛑 破口分析")
+                    st.markdown(escape_md(rd.get('loophole', '請重新執行 AI 深度解析以取得破口分析。')))
 
             st.write("")
 
-            # 🌟 新板塊：隱藏地雷 & 打假雷達
+            # 🌟 板塊三：隱藏地雷 & 打假雷達
             st.markdown("### 💣 進階風險探測")
             col_mine, col_radar = st.columns(2)
             with col_mine:
                 with st.container(border=True):
-                    st.markdown("#### 🪤 隱藏地雷警告 (附屬項)")
+                    st.markdown("#### 🪤 隱藏地雷警告 (附屬項重點)")
                     st.markdown(escape_md(rd.get('hidden_landmines', '此專利尚未產生此項目資料，請重新執行 AI 深度解析。')))
             with col_radar:
                 with st.container(border=True):
