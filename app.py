@@ -55,7 +55,7 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 2. 登入機制 (改為姓名輸入，但保留 3676 管理員)
+# 🔐 2. 姓名登入機制 (管理員仍為 3676)
 # ==========================================
 if 'current_user' not in st.session_state: 
     st.session_state.current_user = None
@@ -78,7 +78,7 @@ if not st.session_state.current_user:
 IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
 
 # ==========================================
-# 🧠 3. 高階專利 Prompt 庫 
+# 🧠 3. 高階專利 Prompt 庫 (完整保留標準規定)
 # ==========================================
 DETAILED_11_RULES = """
 【一、 🚦 FTO 風險判定】
@@ -121,25 +121,42 @@ DETAILED_11_RULES = """
 
 PROMPT_M1_BATCH = """
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務研發經驗的資深研發主管兼專利工程師。
-【⚠️ 跨國語言處理指示】：若輸入的專利內容為外文，請直接在腦中翻譯，並【一律使用台灣繁體中文】輸出結果！
+【⚠️ 跨國語言處理指示】：若輸入的專利標題、摘要或請求項為英文、日文或其他外語，請直接在腦中進行精準的專業翻譯，並【一律使用台灣繁體中文】輸出最終結果！
 
 請嚴格輸出 JSON 格式：
 {
-  "申請號": "從內文找出申請號(或公開號/證書號)",
-  "專利名稱": "從內文找出專利名稱",
-  "專利權人": "從內文找出申請人/專利權人名稱",
   "五大類": "【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[NTC, PTC, Sensor, Varistor, LCP, 其他]。禁止發明新詞。可多選，用半形逗號分隔。",
   "次系統": "自訂 5-8 字的具體系統名",
   "特殊機構": "15字內精準描述其物理、化學改變或關鍵製程",
   "達成功效": "20字內描述解決的痛點 (例如高頻、高溫或微型化)",
-  "核心解法": "用 RD 聽得懂的白話文，極度詳細且精確地描述材料配方、結構疊層、比例參數或製程步驟細節（請務必保留所有具體的數值、材料名稱與特徵條件，字數約 100 到 150 字）。"
+  "核心解法": "用 RD 聽得懂的白話文，極度詳細且精確地描述材料配方、結構疊層、比例參數或製程步驟細節（請務必保留所有具體的數值、材料名稱與特徵條件，字數約 100 到 150 字，提供最詳盡的說明）。"
+}
+"""
+
+# 🌟 新增：用於模組一 PDF 直通車的全文資訊初篩 Prompt
+PROMPT_PDF_DIRECT_EXTRACT = """
+你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務研發經驗的資深研發主管兼專利工程師。
+請全面閱讀這篇專利PDF說明書，並【一律使用台灣繁體中文】輸出嚴格的 JSON 格式：
+{
+  "證書號": "從內文找出證書號/公開公告號(例如 TWI911168B 或 CN121494550A)",
+  "申請號": "從內文找出申請號(例如 TW11111168)",
+  "專利名稱": "專利標題名稱",
+  "專利權人": "專利權人或申請人名稱",
+  "公開公告日": "公告日或公開日",
+  "摘要": "請控制在 100 字內簡述本案摘要",
+  "請求項": "請擷取並精簡其最核心的獨立請求項內容",
+  "五大類": "【最高嚴格限制】絕對只能從這 6 個詞彙中挑選：[NTC, PTC, Sensor, Varistor, LCP, 其他]。可多選，用半形逗號分隔。",
+  "次系統": "自訂 5-8 字的具體系統名",
+  "特殊機構": "15字內精準描述其物理、化學改變或關鍵製程",
+  "達成功效": "20字內描述解決的痛點",
+  "核心解法": "用 RD 聽得懂的白話文，極度詳細且精確地描述材料配方、結構疊層、比例參數或製程步驟細節（字數約 100 到 150 字）。"
 }
 """
 
 PROMPT_M3_SINGLE = f"""
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務經驗的資深研發主管兼專利代理人。
-【⚠️ 跨國語言處理指示】：若閱讀的 PDF 說明書為外文，請【一律使用台灣繁體中文】撰寫下方所有 JSON 內容與報告！
-【⚠️ 排版警告】：請絕對不要使用半形波浪號「~」來表示數值範圍，請改用「至」或全形「-」。
+【⚠️ 跨國語言處理指示】：若閱讀的 PDF 說明書為外文（如英文、日文等），請直接將其視為繁體中文進行理解，並【一律使用台灣繁體中文】撰寫下方所有 JSON 內容與報告！
+【⚠️ 排版警告】：請絕對不要使用半形波浪號「~」來表示數值範圍（以免導致網頁產生刪除線），請改用「至」或全形「-」。
 
 【🔴 輸出格式要求：純 JSON 格式】
 {{
@@ -321,21 +338,21 @@ if st.session_state.radio_nav.startswith("👑 專家"):
         st.error(f"讀取工單失敗: {e}")
 
 # ==========================================
-# 📥 模組一：探勘匯入
+# 📥 模組一：探勘匯入 (支援雙頁籤：Excel/PDF直通)
 # ==========================================
 elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
     if not IS_ADMIN:
         st.error("⛔ 權限不足：僅限管理員 (3676) 具備資料匯入與探勘權限。")
     else:
-        # 🌟 新增：雙管線介面 (Excel 批次 / PDF 單篇)
-        t_excel, t_pdf = st.tabs(["📊 1. 傳統 Excel 批次匯入", "📄 2. 單篇 PDF 智能直通車 (新功能)"])
+        st.header(f"1. 資料匯入與狀態更新 (寫入: `{get_db_table()}`)")
         
-        with t_excel:
-            st.markdown("上傳 TWPAT/Google Patents 匯出的 Excel/CSV 檔案")
-            uploaded_excel = st.file_uploader("選擇檔案", type=["xlsx", "xls", "csv"], key="excel_up")
-
+        # 🌟 建立雙軌匯入頁籤區塊，不影響原有流程
+        m1_tab_excel, m1_tab_pdf = st.tabs(["📊 批次 Excel 匯入更新", "📄 單篇 PDF 智能直通車 (新功能)"])
+        
+        with m1_tab_excel:
+            uploaded_excel = st.file_uploader("上傳 TWPAT/Google Patents 匯出的 Excel/CSV", type=["xlsx", "xls", "csv"], key="uploader_excel_m1")
             if uploaded_excel:
-                if st.button("🔄 執行資料比對與匯入", type="primary"):
+                if st.button("🔄 執行資料比對與匯入", type="primary", key="btn_excel_import_m1"):
                     df = pd.read_csv(uploaded_excel) if uploaded_excel.name.endswith('.csv') else pd.read_excel(uploaded_excel)
                     col_map = {
                         'title': next((c for c in df.columns if '名稱' in c or '標題' in c or 'title' in c.lower()), None),
@@ -394,11 +411,11 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                     st.success(f"✅ 同步完成！新增: {len(new_rows_to_insert)} | 更新: {update_count} | 跳過: {skip_records}")
 
             st.markdown("---")
-            st.header("3. AI 批次特徵萃取 (針對 Excel 匯入的 Pending 資料)")
+            st.header("2. AI 批次特徵萃取 (支援多國語言)")
             pend_df = fetch_patents('PENDING')
             if not pend_df.empty:
                 bs = st.slider("處理筆數", 1, min(50, len(pend_df)), min(5, len(pend_df)))
-                if st.button(f"🤖 啟動探勘管線", type="primary"):
+                if st.button(f"🤖 啟動探勘管線", type="primary", key="btn_run_pipeline_m1"):
                     pb2 = st.progress(0)
                     for i, (idx, row) in enumerate(pend_df.head(bs).iterrows()):
                         try:
@@ -417,60 +434,61 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                     st.success("✅ 批次解析完成！")
                     time.sleep(1)
                     st.rerun()
-            else:
-                st.info("💡 目前沒有等待處理的 PENDING 資料。")
 
-        # 🌟 新功能：單篇 PDF 直通車
-        with t_pdf:
-            st.markdown("上傳單篇 PDF，AI 將自動辨識欄位、分類，並直接存入知識庫。")
-            up_pdf_direct = st.file_uploader("上傳 PDF 文件", type=["pdf"], key="pdf_direct_up")
-            if up_pdf_direct:
-                if st.button("🚀 啟動 PDF 智能萃取", type="primary"):
-                    with st.spinner("🧠 AI 正在閱讀全文並萃取分類... (約需 20 秒)"):
+        # 🌟 頁籤二：單篇 PDF 智能直通車（直接萃取、分類並完工存入模組二）
+        with m1_tab_pdf:
+            st.markdown("### 🚀 單篇專利 PDF 智能萃取直通車")
+            st.info("直接上傳單篇專利說明書 PDF。AI 將直接掃描全文、辨識案件基本資訊，並自動執行技術特徵分類與核心解法分析。上傳後專利將以 **COMPLETED（完工）** 狀態直接傳送至模組二知識庫。")
+            uploaded_direct_pdf = st.file_uploader("請選擇專利 PDF 說明書檔案", type=["pdf"], key="uploader_direct_pdf_m1")
+            
+            if uploaded_direct_pdf:
+                if st.button("🚀 啟動 PDF 全文辨識與直接歸檔", type="primary", key="btn_direct_pdf_m1"):
+                    with st.spinner("🧠 AI 正在深度閱讀 PDF 全文並建立歸檔特徵..."):
                         try:
-                            # 1. 寫入暫存檔
                             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp: 
-                                tmp.write(up_pdf_direct.getvalue())
+                                tmp.write(uploaded_direct_pdf.getvalue())
                                 tp = tmp.name
                             gf = genai.upload_file(tp)
                             
-                            # 2. 要求 Gemini 從 PDF 中抓出所有需要的資料
-                            res = model.generate_content([gf, PROMPT_M1_BATCH])
-                            js = parse_ai_json(res.text) 
+                            # 呼叫直通車專用分析指令
+                            res = model.generate_content([gf, PROMPT_PDF_DIRECT_EXTRACT])
+                            js = parse_ai_json(res.text)
                             
-                            # 3. 處理取得的資料
-                            app_num = js.get("申請號", f"AUTO_{int(time.time())}")
                             cats = [c.strip() for c in js.get('五大類', '其他').split(',') if c.strip() in ['NTC', 'PTC', 'Sensor', 'Varistor', 'LCP', '其他']]
                             
-                            new_data = {
-                                'app_num': app_num,
-                                'cert_num': app_num, # 預設同申請號
-                                'title': js.get("專利名稱", "未知專利"),
-                                'assignee': clean_assignee(js.get("專利權人", "未知")),
-                                'sys_main': ', '.join(cats) if cats else '其他', 
+                            # 直接組裝成 COMPLETED 狀態的 Payload
+                            pdf_direct_payload = {
+                                'app_num': js.get('申請號', f"TW{int(time.time())}"),
+                                'cert_num': js.get('證書號', ''),
+                                'app_date': js.get('申請日', '未知'),
+                                'pub_date': js.get('公開公告日', '未知'),
+                                'assignee': clean_assignee(js.get('專利權人', '未知')),
+                                'title': js.get('專利名稱', '無名稱'),
+                                'abstract': js.get('摘要', '無摘要'),
+                                'claims': js.get('請求項', '無請求項'),
+                                'legal_status': "公告" if js.get('證書號') else "公開",
+                                'status': 'COMPLETED',
+                                'sys_main': ', '.join(cats) if cats else '其他',
                                 'sys_sub': js.get('次系統', '未分類'),
-                                'mechanism': js.get('特殊機構', ''), 
+                                'mechanism': js.get('特殊機構', ''),
                                 'effect': js.get('達成功效', ''),
-                                'solution': js.get('核心解法', ''), 
-                                'legal_status': "公開", # 預設
-                                'status': 'COMPLETED'
+                                'solution': js.get('核心解法', '')
                             }
                             
-                            # 4. 寫入資料庫
-                            supabase.table(get_db_table()).insert(new_data).execute()
+                            supabase.table(get_db_table()).insert(pdf_direct_payload).execute()
                             
-                            # 5. 清理
                             try: genai.delete_file(gf.name)
                             except: pass 
                             os.remove(tp)
                             
-                            st.success(f"✅ AI 解析完成！已成功將 [{app_num}] 匯入知識庫中。")
-                            
+                            st.success(f"🎉 專利 [{js.get('專利名稱', '新專利')}] PDF 解析成功！已完成分析並直接分類至模組二研發知識庫中。")
+                            time.sleep(1)
+                            st.rerun()
                         except Exception as e:
-                            st.error(f"分析發生異常：{e}")
+                            st.error(f"直通車分析發生異常：{e}")
 
 # ==========================================
-# 📊 模組二：研發知識庫
+# 📊 模組二：研發知識庫 (⚡ 完美維持 100% 原始排版設定)
 # ==========================================
 elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
     df = fetch_patents('COMPLETED')
@@ -503,6 +521,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                         u_key = f"{did}_{idx}"
                         
                         with st.container(border=True):
+                            # 🌟 [排版完全還原] 放大圖示比例，按鈕縮小，無收藏，無標籤
                             col_img, col_mid, col_btn = st.columns([4, 6.5, 1.5])
                             
                             with col_img:
@@ -539,6 +558,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                             st.rerun()
 
                             with col_btn:
+                                # 🌟 [排版完全還原] 直式按鈕設計
                                 if st.button("進\n入\n拆\n解", key=f"btn_s_{u_key}", use_container_width=True, type="primary"):
                                     st.session_state.target_single_patent = p.to_dict()
                                     st.session_state.pdf_bytes_main = None 
@@ -548,7 +568,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                     st.rerun()
 
 # ==========================================
-# 🕵️ 模組三：單篇深度拆解 
+# 🕵️ 模組三：單篇深度拆解 (研發專屬直覺大屏)
 # ==========================================
 elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     t = st.session_state.target_single_patent
@@ -557,11 +577,12 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     else:
         db_id, did = t.get('ID'), (t.get('證書號') or t.get('申請號'))
         
+        # 頂部操作區與標題
         col_title, col_dl = st.columns([8, 2])
         with col_title:
             st.header(f"🕵️ 深度拆解：[{did}] {escape_md(t.get('專利名稱'))}")
             st.markdown(f"**🏢 權利人：** {escape_md(t.get('專利權人'))} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：**{t.get('專利類型')}**")
-            
+        
         if not st.session_state.rd_card_data:
             res = supabase.table(get_db_table()).select("rd_card_json, vis_data_json, ip_report_text, thumbnail_base64").eq('id', db_id).execute().data
             if res and res[0].get('rd_card_json'):
@@ -570,6 +591,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                 st.session_state.ip_report_content = res[0].get('ip_report_text')
                 st.session_state.thumbnail_base64 = res[0].get('thumbnail_base64')
 
+        # 右上角下載 Word 按鈕
         if st.session_state.ip_report_content:
             with col_dl:
                 st.write("")
@@ -629,36 +651,38 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         else:
             rd = st.session_state.rd_card_data
             
+            # 根據權限決定 Tabs 的數量
             if IS_ADMIN:
                 tabs = st.tabs(["🧑‍💻 研發戰略大屏", "⚖️ 智權法務中心 (管理員專屬)"])
-                t_rd = tabs[0]; t_ip = tabs[1]
+                t_rd = tabs[0]
+                t_ip = tabs[1]
             else:
                 tabs = st.tabs(["🧑‍💻 研發戰略大屏"])
-                t_rd = tabs[0]; t_ip = None
+                t_rd = tabs[0]
+                t_ip = None
             
+            # -----------------------------------------------------------
+            # 🧑‍💻 TAB 1: 研發大屏 (所有人可見)
+            # -----------------------------------------------------------
             with t_rd:
-                # 🌟 板塊一：FTO & 快照 (並列排版)
-                col_snap, col_avoid = st.columns(2)
-                with col_snap:
-                    with st.container(border=True, height=450):
-                        st.markdown(f"#### {escape_md(rd.get('fto', '【一、 🚦 FTO 風險判定】未提供'))}")
-                        st.markdown("---")
-                        st.markdown("#### 📸 技術核心快照")
-                        snap = rd.get('snapshot', {})
-                        st.markdown(f"**{escape_md(snap.get('purpose', rd.get('problem', '')))}**")
-                        st.markdown(f"**{escape_md(snap.get('tech', rd.get('solution', '')))}**")
-                        st.markdown(f"**{escape_md(snap.get('effect', rd.get('effect', '')))}**")
-                
-                with col_avoid:
-                    with st.container(border=True, height=450):
-                        st.markdown("#### 🛡️ 高階迴避設計建議")
-                        avoids = rd.get('design_avoid_rd', rd.get('avoid_design', []))
-                        for a in avoids: 
-                            st.markdown(f"✅ {escape_md(a)}")
+                # 板塊一：FTO & 精簡快照
+                with st.container(border=True):
+                    st.markdown(f"#### {escape_md(rd.get('fto', '【一、 🚦 FTO 風險判定】未提供'))}")
+                    st.markdown("---")
+                    st.markdown("#### 📸 技術核心快照")
+                    
+                    snap = rd.get('snapshot', {})
+                    purp = snap.get('purpose', rd.get('problem', ''))
+                    tech = snap.get('tech', rd.get('solution', ''))
+                    effe = snap.get('effect', rd.get('effect', ''))
+                    
+                    st.markdown(f"**{escape_md(purp)}**")
+                    st.markdown(f"**{escape_md(tech)}**")
+                    st.markdown(f"**{escape_md(effe)}**")
             
                 st.write("")
                 
-                # 🌟 板塊二：純圖示 vs 獨立項與破口
+                # 板塊二：左圖式 vs 右獨立項拆解與破口
                 st.markdown("### 🖼️ 專利圖面與獨立項拆解")
                 col_img, col_check = st.columns([4.5, 5.5])
                 
@@ -674,6 +698,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                         st.markdown("#### 🛡️ 獨立項全要件檢核")
                         st.markdown("<span style='color:#d32f2f; font-weight:bold;'>⚠️ 注意：只要您的設計「完全包含」下方所有打勾的特徵，即構成侵權風險！</span>", unsafe_allow_html=True)
                         st.write("")
+                        
                         ck_cnt = 0
                         claims_chk = rd.get('claim_chart', rd.get('risk_check', []))
                         for i, r in enumerate(claims_chk):
@@ -692,7 +717,7 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
 
                 st.write("")
 
-                # 🌟 板塊三：進階風險探測
+                # 板塊三：隱藏地雷 & 打假雷達
                 st.markdown("### 💣 進階風險探測")
                 col_mine, col_radar = st.columns(2)
                 with col_mine:
