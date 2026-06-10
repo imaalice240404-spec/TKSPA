@@ -5,6 +5,7 @@ import pandas as pd
 import google.generativeai as genai
 from supabase import create_client, Client
 from docx import Document
+import pypdfium2 as pdfium # 新增：用於智權中心三視窗渲染 PDF
 
 # ==========================================
 # ⚙️ 1. 系統初始化與環境設定
@@ -55,7 +56,7 @@ def init_supabase() -> Client:
 supabase = init_supabase()
 
 # ==========================================
-# 🔐 2. 姓名登入機制 (管理員仍為 3676)
+# 🔐 2. 員工職號登入機制
 # ==========================================
 if 'current_user' not in st.session_state: 
     st.session_state.current_user = None
@@ -78,7 +79,7 @@ if not st.session_state.current_user:
 IS_ADMIN = (st.session_state.current_user == ADMIN_ID)
 
 # ==========================================
-# 🧠 3. 高階專利 Prompt 庫 (完整保留標準規定)
+# 🧠 3. 高階專利 Prompt 庫 
 # ==========================================
 DETAILED_11_RULES = """
 【一、 🚦 FTO 風險判定】
@@ -88,6 +89,9 @@ DETAILED_11_RULES = """
 1. 發明目的：(說明解決傳統弊病) 
 2. 核心技術：(說明具體零件結構設計、材料配方或製程步驟) 
 3. 宣稱功效：(說明提升了什麼物理效果，如耐壓、高頻特性、降低 ESR 等)
+
+【三、🏢 研發部門精準派發】
+[填入建議部門]。 (分發理由)
 
 【四、🛑 先前技術與妥協分析 (防禦地雷)】
 本案欲解決之舊設計缺點：(習用技術缺點)
@@ -130,7 +134,6 @@ PROMPT_M1_BATCH = """
 }
 """
 
-# 🌟 新增：用於模組一 PDF 直通車的全文資訊初篩 Prompt
 PROMPT_PDF_DIRECT_EXTRACT = """
 你是一位具備材料科學、化學工程與電子電機碩士學歷，或是在被動元件廠具備實務研發經驗的資深研發主管兼專利工程師。
 請全面閱讀這篇專利PDF說明書，並【一律使用台灣繁體中文】輸出嚴格的 JSON 格式：
@@ -335,7 +338,7 @@ if st.session_state.radio_nav.startswith("👑 專家"):
         st.error(f"讀取工單失敗: {e}")
 
 # ==========================================
-# 📥 模組一：探勘匯入 (支援雙頁籤：Excel/PDF直通)
+# 📥 模組一：探勘匯入
 # ==========================================
 elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
     if not IS_ADMIN:
@@ -343,7 +346,6 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
     else:
         st.header(f"1. 資料匯入與狀態更新 (寫入: `{get_db_table()}`)")
         
-        # 🌟 建立雙軌匯入頁籤區塊，不影響原有流程
         m1_tab_excel, m1_tab_pdf = st.tabs(["📊 批次 Excel 匯入更新", "📄 單篇 PDF 智能直通車 (新功能)"])
         
         with m1_tab_excel:
@@ -432,7 +434,6 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                     time.sleep(1)
                     st.rerun()
 
-        # 🌟 頁籤二：單篇 PDF 智能直通車（直接萃取、分類並完工存入模組二）
         with m1_tab_pdf:
             st.markdown("### 🚀 單篇專利 PDF 智能萃取直通車")
             st.info("直接上傳單篇專利說明書 PDF。AI 將直接掃描全文、辨識案件基本資訊，並自動執行技術特徵分類與核心解法分析。上傳後專利將以 **COMPLETED（完工）** 狀態直接傳送至模組二知識庫。")
@@ -447,13 +448,11 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                                 tp = tmp.name
                             gf = genai.upload_file(tp)
                             
-                            # 呼叫直通車專用分析指令
                             res = model.generate_content([gf, PROMPT_PDF_DIRECT_EXTRACT])
                             js = parse_ai_json(res.text)
                             
                             cats = [c.strip() for c in js.get('五大類', '其他').split(',') if c.strip() in ['NTC', 'PTC', 'Sensor', 'Varistor', 'LCP', '其他']]
                             
-                            # 直接組裝成 COMPLETED 狀態的 Payload
                             pdf_direct_payload = {
                                 'app_num': js.get('申請號', f"TW{int(time.time())}"),
                                 'cert_num': js.get('證書號', ''),
@@ -485,7 +484,7 @@ elif st.session_state.radio_nav == "📥 模組一：探勘匯入":
                             st.error(f"直通車分析發生異常：{e}")
 
 # ==========================================
-# 📊 模組二：研發知識庫 (⚡ 完美維持 100% 原始排版設定)
+# 📊 模組二：研發知識庫
 # ==========================================
 elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
     df = fetch_patents('COMPLETED')
@@ -518,7 +517,6 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                         u_key = f"{did}_{idx}"
                         
                         with st.container(border=True):
-                            # 🌟 [排版完全還原] 放大圖示比例，按鈕縮小，無收藏，無標籤
                             col_img, col_mid, col_btn = st.columns([4, 6.5, 1.5])
                             
                             with col_img:
@@ -555,7 +553,6 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                             st.rerun()
 
                             with col_btn:
-                                # 🌟 [排版完全還原] 直式按鈕設計
                                 if st.button("進\n入\n拆\n解", key=f"btn_s_{u_key}", use_container_width=True, type="primary"):
                                     st.session_state.target_single_patent = p.to_dict()
                                     st.session_state.pdf_bytes_main = None 
@@ -565,7 +562,7 @@ elif st.session_state.radio_nav == "📊 模組二：研發知識庫":
                                     st.rerun()
 
 # ==========================================
-# 🕵️ 模組三：單篇深度拆解 (研發專屬直覺大屏)
+# 🕵️ 模組三：單篇深度拆解
 # ==========================================
 elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     t = st.session_state.target_single_patent
@@ -574,12 +571,11 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
     else:
         db_id, did = t.get('ID'), (t.get('證書號') or t.get('申請號'))
         
-        # 頂部操作區與標題
         col_title, col_dl = st.columns([8, 2])
         with col_title:
             st.header(f"🕵️ 深度拆解：[{did}] {escape_md(t.get('專利名稱'))}")
             st.markdown(f"**🏢 權利人：** {escape_md(t.get('專利權人'))} | **📅 公開日：** {t.get('公開公告日')} ｜ 🏷️ 類型：**{t.get('專利類型')}**")
-        
+            
         if not st.session_state.rd_card_data:
             res = supabase.table(get_db_table()).select("rd_card_json, vis_data_json, ip_report_text, thumbnail_base64").eq('id', db_id).execute().data
             if res and res[0].get('rd_card_json'):
@@ -588,7 +584,6 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                 st.session_state.ip_report_content = res[0].get('ip_report_text')
                 st.session_state.thumbnail_base64 = res[0].get('thumbnail_base64')
 
-        # 右上角下載 Word 按鈕
         if st.session_state.ip_report_content:
             with col_dl:
                 st.write("")
@@ -648,21 +643,14 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
         else:
             rd = st.session_state.rd_card_data
             
-            # 根據權限決定 Tabs 的數量
             if IS_ADMIN:
                 tabs = st.tabs(["🧑‍💻 研發戰略大屏", "⚖️ 智權法務中心 (管理員專屬)"])
-                t_rd = tabs[0]
-                t_ip = tabs[1]
+                t_rd = tabs[0]; t_ip = tabs[1]
             else:
                 tabs = st.tabs(["🧑‍💻 研發戰略大屏"])
-                t_rd = tabs[0]
-                t_ip = None
+                t_rd = tabs[0]; t_ip = None
             
-            # -----------------------------------------------------------
-            # 🧑‍💻 TAB 1: 研發大屏 (所有人可見)
-            # -----------------------------------------------------------
             with t_rd:
-                # 板塊一：FTO & 精簡快照
                 with st.container(border=True):
                     st.markdown(f"#### {escape_md(rd.get('fto', '【一、 🚦 FTO 風險判定】未提供'))}")
                     st.markdown("---")
@@ -679,7 +667,6 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
             
                 st.write("")
                 
-                # 板塊二：左圖式 vs 右獨立項拆解與破口
                 st.markdown("### 🖼️ 專利圖面與獨立項拆解")
                 col_img, col_check = st.columns([4.5, 5.5])
                 
@@ -714,7 +701,6 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
 
                 st.write("")
 
-                # 板塊三：隱藏地雷 & 打假雷達
                 st.markdown("### 💣 進階風險探測")
                 col_mine, col_radar = st.columns(2)
                 with col_mine:
@@ -726,7 +712,6 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                         st.markdown("#### 🕵️‍♂️ 打假雷達 (實證功效)")
                         st.markdown(escape_md(rd.get('fake_radar', '此專利尚未產生此項目資料，請重新執行 AI 深度解析。')))
 
-                # 🌟 呼叫支援
                 st.markdown("---")
                 st.markdown("### 🚨 有侵權疑慮或需要進一步法務解析？")
                 with st.container(border=True):
@@ -739,17 +724,64 @@ elif st.session_state.radio_nav == "🕵️ 模組三：單篇深度拆解":
                             st.error("請填寫描述。")
 
             # -----------------------------------------------------------
-            # ⚖️ TAB 2: 智權中心 (僅 3676 管理員可見)
+            # ⚖️ TAB 2: 智權中心 (僅 3676 管理員可見) + 請求項文義比對三視窗
             # -----------------------------------------------------------
             if t_ip is not None:
                 with t_ip:
-                    st.markdown("### 🛡️ 高階迴避設計建議")
-                    with st.container(border=True):
-                        avoids = rd.get('design_avoid_rd', rd.get('avoid_design', []))
-                        for a in avoids: 
-                            st.markdown(f"✅ {escape_md(a)}")
+                    r1, r2 = st.tabs(["📄 智權戰略深度報告 (11大天條)", "⚖️ 請求項文義比對 (三視窗)"])
                     
-                    st.markdown("### ⚖️ 智權法務深度報告")
-                    st.markdown("以下為嚴格遵守「智權審查 11 大天條」生成的完整實務報告：")
-                    with st.container(height=650, border=True): 
-                        st.markdown(escape_md(st.session_state.ip_report_content))
+                    with r1:
+                        st.markdown("### 🛡️ 高階迴避設計建議")
+                        with st.container(border=True):
+                            avoids = rd.get('design_avoid_rd', rd.get('avoid_design', []))
+                            for a in avoids: 
+                                st.markdown(f"✅ {escape_md(a)}")
+                        
+                        st.markdown("### ⚖️ 智權法務深度報告")
+                        c_dl, c_dr = st.columns([3, 1])
+                        c_dl.markdown("以下為嚴格遵守「智權審查 11 大天條」生成的完整實務報告：")
+                        c_dr.download_button("📥 下載 Word 報告", data=create_word_doc(st.session_state.ip_report_content), file_name=f"IP_Report_{did}.docx", mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document", use_container_width=True, key="dl_word_tab2")
+                        with st.container(height=650, border=True): 
+                            st.markdown(escape_md(st.session_state.ip_report_content))
+
+                    with r2:
+                        if not st.session_state.pdf_bytes_main: 
+                            st.info("請先補傳 PDF。")
+                        else:
+                            cl_list = st.session_state.claim_data_t2.get("components", [])
+                            if cl_list:
+                                opts = {f"[{c.get('id','')}] {c.get('name','')}": c for c in cl_list if isinstance(c, dict) and c.get('id')}
+                                if opts:
+                                    ac = opts[st.selectbox("🎯 目標元件：", list(opts.keys()))]
+                                    cw1, cw2 = st.columns(2)
+                                    
+                                    with cw1:
+                                        st.markdown("### 🧩 獨立項文義")
+                                        with st.container(height=350, border=True):
+                                            for L in st.session_state.claim_data_t2.get("claims", []):
+                                                Ls = str(L)
+                                                if ac['name'] in Ls: 
+                                                    highlighted_str = Ls.replace(ac['name'], f"<span style='background-color:#fff3cd; font-weight:bold; color:#856404; padding:2px 4px; border-radius:3px;'>{ac['name']}</span>")
+                                                    st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee;'>{highlighted_str}</div>", unsafe_allow_html=True)
+                                                else: 
+                                                    st.markdown(f"<div style='padding: 8px; border-bottom: 1px dashed #eee; color: #555;'>{Ls}</div>", unsafe_allow_html=True)
+                                        
+                                        st.markdown("### 🖼️ 專利圖面")
+                                        try:
+                                            pdf_ip = pdfium.PdfDocument(st.session_state.pdf_bytes_main)
+                                            pg_ip = st.number_input("對照頁碼", 1, len(pdf_ip), 1)
+                                            with st.container(height=450, border=True): 
+                                                st.image(pdf_ip[pg_ip-1].render(scale=2.0).to_pil(), use_container_width=True)
+                                        except Exception as e:
+                                            st.error(f"無法渲染 PDF 圖面：{e}")
+                                            
+                                    with cw2:
+                                        st.markdown("### 📖 說明書具體限制")
+                                        with st.container(height=895, border=True):
+                                            fts = [t for t in st.session_state.claim_data_t2.get('spec_texts', []) if ac['name'] in str(t)]
+                                            if not fts: 
+                                                st.warning("未找到說明。")
+                                            else:
+                                                for t in fts: 
+                                                    highlighted_text = str(t).replace(ac['name'], f"<mark style='background-color:#cce5ff; color:#004085; font-weight:bold; padding:2px; border-radius:3px;'>{ac['name']}</mark>")
+                                                    st.markdown(f"<div style='background: #f8f9fa; padding: 10px; border-left: 4px solid #007bff; margin-bottom: 10px;'>{highlighted_text}</div>", unsafe_allow_html=True)
